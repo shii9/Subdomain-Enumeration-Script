@@ -45,16 +45,10 @@ cd Subdomain-Enumeration-Script
 chmod +x web_subdomain
 ```
 
-### Step 2: Install Dependencies
-Install the required dependencies using the following command:
-```bash
-pip install -r requirements.txt
-```
-
-### Step 3: Run the Script
+### Step 2: Run the Script
 Execute the script to enumerate subdomains for a specific domain:
 ```bash
-python script_name.py -d example.com
+web_subdomain -d example.com
 ```
 
 Replace `example.com` with the domain name you want to enumerate. The output will include a list of identified subdomains.
