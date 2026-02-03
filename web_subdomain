@@ -1,0 +1,966 @@
+#!/bin/bash
+
+#═══════════════════════════════════════════════════════════════════════════
+#  WEB_BUG_SUB - Ultimate Subdomain Discovery Tool
+#  Version: 3.0 - Maximum Subdomain Collection
+#  Uses BEST commands from all tools for maximum results
+#═══════════════════════════════════════════════════════════════════════════
+
+set -o pipefail
+
+VERSION="3.0"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+WHITE='\033[1;37m'
+NC='\033[0m'
+
+# Emoji indicators
+INFO="${BLUE}[ℹ]${NC}"
+SUCCESS="${GREEN}[✓]${NC}"
+ERROR="${RED}[✗]${NC}"
+WARNING="${YELLOW}[⚠]${NC}"
+PROGRESS="${CYAN}[⟳]${NC}"
+TARGET="${PURPLE}[◉]${NC}"
+
+# Configuration
+THREADS=50
+TIMEOUT=30
+WORDLIST=""
+BRUTEFORCE=false
+PERMUTATIONS=false
+SKIP_TOOLS=()
+
+#═══════════════════════════════════════════════════════════════════════════
+# BANNER & HELP
+#═══════════════════════════════════════════════════════════════════════════
+
+banner() {
+    clear
+    echo -e "${CYAN}"
+    cat << "EOF"
+╔════════════════════════════════════════════════════════════════════════╗
+║                                                                        ║
+║           ██╗    ██╗███████╗██████╗       ██████╗ ██╗   ██╗ ██████╗  ║
+║           ██║    ██║██╔════╝██╔══██╗      ██╔══██╗██║   ██║██╔════╝  ║
+║           ██║ █╗ ██║█████╗  ██████╔╝█████╗██████╔╝██║   ██║██║  ███╗ ║
+║           ██║███╗██║██╔══╝  ██╔══██╗╚════╝██╔══██╗██║   ██║██║   ██║ ║
+║           ╚███╔███╔╝███████╗██████╔╝      ██████╔╝╚██████╔╝╚██████╔╝ ║
+║            ╚══╝╚══╝ ╚══════╝╚═════╝       ╚═════╝  ╚═════╝  ╚═════╝  ║
+║                                                                        ║
+║                        SUBDOMAIN HUNTER                               ║
+║              Ultimate Subdomain Discovery Tool v3.0                   ║
+║                Maximum Coverage - Best Commands                       ║
+║                                                                        ║
+╚════════════════════════════════════════════════════════════════════════╝
+EOF
+    echo -e "${NC}"
+}
+
+show_help() {
+    cat << EOF
+${WHITE}Usage:${NC}
+  web_bug_sub <target.com> [options]
+
+${WHITE}Options:${NC}
+  ${CYAN}-w, --wordlist${NC}     Path to wordlist for DNS brute-forcing
+  ${CYAN}-b, --bruteforce${NC}   Enable DNS brute-force mode
+  ${CYAN}-p, --permutations${NC} Generate permutations from found subdomains
+  ${CYAN}-t, --threads${NC}      Number of threads (default: 50)
+  ${CYAN}-to, --timeout${NC}     Timeout in seconds (default: 30)
+  ${CYAN}-s, --skip${NC}         Skip specific tools (comma-separated)
+  ${CYAN}-h, --help${NC}         Show this help message
+
+${WHITE}Examples:${NC}
+  ${YELLOW}# Basic passive enumeration (fast)${NC}
+  web_bug_sub target.com
+
+  ${YELLOW}# With DNS brute-forcing (comprehensive)${NC}
+  web_bug_sub target.com -b -w /opt/wordlists/subdomains.txt
+
+  ${YELLOW}# With permutations (maximum coverage)${NC}
+  web_bug_sub target.com -p
+
+  ${YELLOW}# Full aggressive mode${NC}
+  web_bug_sub target.com -b -p -w /opt/wordlists/dns-jhaddix.txt -t 100
+
+  ${YELLOW}# Skip slow tools${NC}
+  web_bug_sub target.com -s amass,shuffledns
+
+${WHITE}Output Files:${NC}
+  target.com/
+  ├── ${CYAN}subdomains_raw.txt${NC}              # All collected (before cleaning)
+  ├── ${CYAN}subdomains_normalized.txt${NC}       # Cleaned & normalized
+  ├── ${CYAN}subdomains_live.txt${NC}             # Live with http/https
+  ├── ${CYAN}subdomains_live_clean.txt${NC}       # Live hostnames only
+  ├── ${CYAN}subdomains_permutations.txt${NC}     # Generated permutations (if -p)
+  ├── ${CYAN}subdomains_bruteforced.txt${NC}      # DNS bruteforce results (if -b)
+  ├── ${CYAN}SUBDOMAIN_REPORT.txt${NC}            # Complete summary
+  └── ${CYAN}web_bug.log${NC}                     # Execution log
+
+${WHITE}Subdomain Sources:${NC}
+  ${GREEN}Passive Enumeration:${NC}
+    • Subfinder       - All sources + recursive discovery
+    • Assetfinder     - Cross-platform subdomain finder
+    • Amass           - Passive mode with all data sources
+    • Findomain       - Monitoring + import capabilities
+    • crt.sh          - Certificate Transparency (multiple queries)
+    • Chaos           - ProjectDiscovery dataset
+
+  ${GREEN}Active Enumeration:${NC}
+    • ShuffleDNS      - High-performance DNS brute-forcing
+    • Amass Active    - DNS resolution + alterations
+    • Permutations    - Generate variations (dev-, api-, staging-, etc.)
+
+${WHITE}Wordlists (Recommended):${NC}
+  • ${CYAN}/opt/wordlists/subdomains.txt${NC}
+  • ${CYAN}/opt/wordlists/dns-Jhaddix.txt${NC}
+  • ${CYAN}/opt/wordlists/best-dns-wordlist.txt${NC}
+  • ${CYAN}/opt/wordlists/all.txt${NC}
+
+${WHITE}Features:${NC}
+  ✓ Multiple passive sources for maximum coverage
+  ✓ Recursive subdomain discovery
+  ✓ DNS brute-forcing with custom wordlists
+  ✓ Automatic permutation generation
+  ✓ Wildcard detection and filtering
+  ✓ Live subdomain verification
+  ✓ Clean output with no garbage (IPs, netblocks, etc.)
+  ✓ Parallel execution for speed
+
+EOF
+}
+
+#═══════════════════════════════════════════════════════════════════════════
+# UTILITY FUNCTIONS
+#═══════════════════════════════════════════════════════════════════════════
+
+log() {
+    local level=$1
+    shift
+    local message="$@"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    
+    case $level in
+        INFO)    echo -e "${INFO} ${message}" ;;
+        SUCCESS) echo -e "${SUCCESS} ${message}" ;;
+        ERROR)   echo -e "${ERROR} ${message}" ;;
+        WARN)    echo -e "${WARNING} ${message}" ;;
+        PROGRESS) echo -e "${PROGRESS} ${message}" ;;
+        TARGET)  echo -e "${TARGET} ${message}" ;;
+    esac
+    
+    echo "[$timestamp] [$level] $message" >> "$WORK_DIR/web_bug.log" 2>/dev/null
+}
+
+print_section() {
+    echo -e "\n${WHITE}╔═══════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${WHITE}║${NC}  ${CYAN}$1${NC}"
+    echo -e "${WHITE}╚═══════════════════════════════════════════════════════════════════╝${NC}\n"
+}
+
+spinner() {
+    local pid=$1
+    local message=$2
+    local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    local i=0
+    
+    while kill -0 $pid 2>/dev/null; do
+        i=$(( (i+1) %10 ))
+        printf "\r${CYAN}[${spin:$i:1}]${NC} ${message}"
+        sleep 0.1
+    done
+    printf "\r${SUCCESS} ${message}\n"
+}
+
+check_tool() {
+    command -v "$1" &> /dev/null
+}
+
+tool_in_skip_list() {
+    local tool=$1
+    for skip in "${SKIP_TOOLS[@]}"; do
+        [[ "$skip" == "$tool" ]] && return 0
+    done
+    return 1
+}
+
+check_dependencies() {
+    print_section "Checking Dependencies"
+    
+    local required_tools=("curl" "jq" "sed" "awk" "grep" "sort")
+    local passive_tools=("subfinder" "assetfinder" "amass" "findomain" "httpx")
+    local active_tools=("shuffledns" "puredns" "massdns" "gotator")
+    
+    local missing_required=()
+    local missing_passive=()
+    local missing_active=()
+    
+    # Check required tools
+    for tool in "${required_tools[@]}"; do
+        if ! check_tool "$tool"; then
+            missing_required+=("$tool")
+            log ERROR "Missing required tool: $tool"
+        else
+            log SUCCESS "$tool found"
+        fi
+    done
+    
+    # Check passive tools
+    for tool in "${passive_tools[@]}"; do
+        if ! check_tool "$tool"; then
+            missing_passive+=("$tool")
+            log WARN "Missing passive tool: $tool"
+        else
+            log SUCCESS "$tool found"
+        fi
+    done
+    
+    # Check active tools (only if bruteforce enabled)
+    if [ "$BRUTEFORCE" = true ]; then
+        for tool in "${active_tools[@]}"; do
+            if ! check_tool "$tool"; then
+                missing_active+=("$tool")
+                log WARN "Missing active tool: $tool"
+            else
+                log SUCCESS "$tool found"
+            fi
+        done
+    fi
+    
+    # Exit if required tools are missing
+    if [ ${#missing_required[@]} -gt 0 ]; then
+        log ERROR "Required tools are missing. Cannot continue."
+        exit 1
+    fi
+    
+    # Warn about missing tools
+    if [ ${#missing_passive[@]} -gt 0 ]; then
+        log WARN "Some passive tools are missing. Install for better results:"
+        echo -e "${CYAN}go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest${NC}"
+        echo -e "${CYAN}go install -v github.com/tomnomnom/assetfinder@latest${NC}"
+        echo -e "${CYAN}go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest${NC}"
+    fi
+}
+
+setup_workspace() {
+    print_section "Setting Up Workspace"
+    
+    TARGET=$1
+    WORK_DIR="${TARGET}"
+    
+    if [ -d "$WORK_DIR" ]; then
+        log WARN "Directory ${WORK_DIR} already exists"
+        read -p "Continue and overwrite files? (y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    fi
+    
+    mkdir -p "$WORK_DIR"/{temp_subdomains,temp_bruteforce,temp_permutations}
+    
+    # Setup resolvers
+    cat > "$WORK_DIR/resolvers.txt" << 'EOF'
+1.1.1.1
+8.8.8.8
+8.8.4.4
+1.0.0.1
+9.9.9.9
+149.112.112.112
+208.67.222.222
+208.67.220.220
+64.6.64.6
+64.6.65.6
+EOF
+    
+    log SUCCESS "Workspace created: ${GREEN}$WORK_DIR/${NC}"
+}
+
+#═══════════════════════════════════════════════════════════════════════════
+# PASSIVE SUBDOMAIN ENUMERATION - BEST COMMANDS
+#═══════════════════════════════════════════════════════════════════════════
+
+collect_subfinder() {
+    if tool_in_skip_list "subfinder" || ! check_tool "subfinder"; then
+        return
+    fi
+    
+    log PROGRESS "Running subfinder (all sources + recursive)..."
+    {
+        # Strategy 1: All sources + recursive discovery
+        subfinder -d "$TARGET" -all -recursive -timeout $TIMEOUT -silent 2>/dev/null > "$WORK_DIR/temp_subdomains/subfinder_recursive.txt" &
+        
+        # Strategy 2: All sources + resolve live hosts
+        subfinder -d "$TARGET" -all -nW -rL "$WORK_DIR/resolvers.txt" -silent 2>/dev/null > "$WORK_DIR/temp_subdomains/subfinder_resolved.txt" &
+        
+        wait
+        
+        cat "$WORK_DIR/temp_subdomains"/subfinder_*.txt | sort -u > "$WORK_DIR/temp_subdomains/subfinder.txt"
+        rm -f "$WORK_DIR/temp_subdomains"/subfinder_recursive.txt "$WORK_DIR/temp_subdomains"/subfinder_resolved.txt
+    } &
+    spinner $! "Subfinder: all sources + recursive discovery..."
+    
+    local count=$(wc -l < "$WORK_DIR/temp_subdomains/subfinder.txt" 2>/dev/null || echo 0)
+    log SUCCESS "Subfinder: ${GREEN}$count${NC} subdomains"
+}
+
+collect_assetfinder() {
+    if tool_in_skip_list "assetfinder" || ! check_tool "assetfinder"; then
+        return
+    fi
+    
+    log PROGRESS "Running assetfinder..."
+    {
+        assetfinder --subs-only "$TARGET" 2>/dev/null | sort -u
+    } > "$WORK_DIR/temp_subdomains/assetfinder.txt" &
+    spinner $! "Assetfinder scanning..."
+    
+    local count=$(wc -l < "$WORK_DIR/temp_subdomains/assetfinder.txt" 2>/dev/null || echo 0)
+    log SUCCESS "Assetfinder: ${GREEN}$count${NC} subdomains"
+}
+
+collect_amass() {
+    if tool_in_skip_list "amass" || ! check_tool "amass"; then
+        return
+    fi
+    
+    log PROGRESS "Running amass (passive mode with all sources, max 15 min)..."
+    {
+        # Passive enumeration with all configured sources
+        timeout 900 amass enum -passive -d "$TARGET" -nocolor -noalts -timeout 60 2>/dev/null | \
+            grep -E "^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$" | \
+            grep "\\.${TARGET}$"
+    } > "$WORK_DIR/temp_subdomains/amass.txt" &
+    spinner $! "Amass passive enumeration (this may take a while)..."
+    
+    local count=$(wc -l < "$WORK_DIR/temp_subdomains/amass.txt" 2>/dev/null || echo 0)
+    log SUCCESS "Amass: ${GREEN}$count${NC} subdomains"
+}
+
+collect_findomain() {
+    if tool_in_skip_list "findomain" || ! check_tool "findomain"; then
+        return
+    fi
+    
+    log PROGRESS "Running findomain (all sources + monitoring)..."
+    {
+        findomain -t "$TARGET" -q 2>/dev/null
+    } > "$WORK_DIR/temp_subdomains/findomain.txt" &
+    spinner $! "Findomain scanning..."
+    
+    local count=$(wc -l < "$WORK_DIR/temp_subdomains/findomain.txt" 2>/dev/null || echo 0)
+    log SUCCESS "Findomain: ${GREEN}$count${NC} subdomains"
+}
+
+collect_crtsh() {
+    log PROGRESS "Querying Certificate Transparency logs (multiple queries)..."
+    {
+        # Query 1: Wildcard search
+        curl -s "https://crt.sh/?q=%.${TARGET}&output=json" 2>/dev/null | \
+            jq -r '.[].name_value' 2>/dev/null | \
+            sed 's/\*\.//g' > "$WORK_DIR/temp_subdomains/crtsh_1.txt"
+        
+        # Query 2: Identity search
+        curl -s "https://crt.sh/?Identity=${TARGET}&output=json" 2>/dev/null | \
+            jq -r '.[].name_value' 2>/dev/null | \
+            sed 's/\*\.//g' > "$WORK_DIR/temp_subdomains/crtsh_2.txt"
+        
+        # Query 3: Common name + SAN
+        curl -s "https://crt.sh/?q=%.${TARGET}&output=json" 2>/dev/null | \
+            jq -r '.[] | .common_name, .name_value' 2>/dev/null | \
+            sed 's/\*\.//g' > "$WORK_DIR/temp_subdomains/crtsh_3.txt"
+        
+        # Query 4: Direct domain
+        curl -s "https://crt.sh/?q=${TARGET}&output=json" 2>/dev/null | \
+            jq -r '.[].name_value' 2>/dev/null | \
+            tr ',' '\n' | \
+            sed 's/\*\.//g' > "$WORK_DIR/temp_subdomains/crtsh_4.txt"
+        
+        cat "$WORK_DIR/temp_subdomains"/crtsh_*.txt | sort -u > "$WORK_DIR/temp_subdomains/crtsh.txt"
+        rm -f "$WORK_DIR/temp_subdomains"/crtsh_[1-4].txt
+    } &
+    spinner $! "Certificate Transparency: multiple queries..."
+    
+    local count=$(wc -l < "$WORK_DIR/temp_subdomains/crtsh.txt" 2>/dev/null || echo 0)
+    log SUCCESS "crt.sh: ${GREEN}$count${NC} subdomains"
+}
+
+collect_chaos() {
+    log PROGRESS "Querying ProjectDiscovery Chaos dataset..."
+    {
+        curl -s "https://chaos-data.projectdiscovery.io/index.json" 2>/dev/null | \
+            jq -r '.[] | select(.URL | contains("'${TARGET}'")) | .URL' 2>/dev/null | \
+            xargs -I{} curl -s {} 2>/dev/null | \
+            grep "\\.${TARGET}$" | \
+            sort -u
+    } > "$WORK_DIR/temp_subdomains/chaos.txt" &
+    spinner $! "Chaos dataset search..."
+    
+    local count=$(wc -l < "$WORK_DIR/temp_subdomains/chaos.txt" 2>/dev/null || echo 0)
+    if [ $count -gt 0 ]; then
+        log SUCCESS "Chaos: ${GREEN}$count${NC} subdomains"
+    else
+        log INFO "Chaos: No data available for this target"
+    fi
+}
+
+#═══════════════════════════════════════════════════════════════════════════
+# ACTIVE SUBDOMAIN ENUMERATION - DNS BRUTE-FORCING
+#═══════════════════════════════════════════════════════════════════════════
+
+bruteforce_shuffledns() {
+    if tool_in_skip_list "shuffledns" || ! check_tool "shuffledns"; then
+        return
+    fi
+    
+    if [ -z "$WORDLIST" ]; then
+        log WARN "No wordlist specified, skipping ShuffleDNS"
+        return
+    fi
+    
+    if [ ! -f "$WORDLIST" ]; then
+        log ERROR "Wordlist not found: $WORDLIST"
+        return
+    fi
+    
+    log PROGRESS "Running ShuffleDNS (high-performance DNS brute-forcing)..."
+    {
+        shuffledns -d "$TARGET" \
+            -w "$WORDLIST" \
+            -r "$WORK_DIR/resolvers.txt" \
+            -t 10000 \
+            -silent 2>/dev/null
+    } > "$WORK_DIR/temp_bruteforce/shuffledns.txt" &
+    spinner $! "ShuffleDNS brute-forcing (this may take a while)..."
+    
+    local count=$(wc -l < "$WORK_DIR/temp_bruteforce/shuffledns.txt" 2>/dev/null || echo 0)
+    log SUCCESS "ShuffleDNS: ${GREEN}$count${NC} subdomains"
+}
+
+bruteforce_puredns() {
+    if tool_in_skip_list "puredns" || ! check_tool "puredns"; then
+        return
+    fi
+    
+    if [ -z "$WORDLIST" ]; then
+        return
+    fi
+    
+    if [ ! -f "$WORDLIST" ]; then
+        return
+    fi
+    
+    log PROGRESS "Running puredns (accurate DNS brute-forcing)..."
+    {
+        puredns bruteforce "$WORDLIST" "$TARGET" \
+            -r "$WORK_DIR/resolvers.txt" \
+            --wildcard-tests 25 \
+            -w "$WORK_DIR/temp_bruteforce/puredns.txt" 2>/dev/null
+    } &
+    spinner $! "Puredns brute-forcing with wildcard detection..."
+    
+    local count=$(wc -l < "$WORK_DIR/temp_bruteforce/puredns.txt" 2>/dev/null || echo 0)
+    log SUCCESS "Puredns: ${GREEN}$count${NC} subdomains"
+}
+
+bruteforce_amass_active() {
+    if tool_in_skip_list "amass" || ! check_tool "amass"; then
+        return
+    fi
+    
+    if [ -z "$WORDLIST" ]; then
+        return
+    fi
+    
+    log PROGRESS "Running amass active mode (DNS resolution + alterations)..."
+    {
+        timeout 1200 amass enum -active -d "$TARGET" \
+            -brute -w "$WORDLIST" \
+            -rf "$WORK_DIR/resolvers.txt" \
+            -alts \
+            -nocolor -noalts 2>/dev/null | \
+            grep -E "^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$" | \
+            grep "\\.${TARGET}$"
+    } > "$WORK_DIR/temp_bruteforce/amass_active.txt" &
+    spinner $! "Amass active brute-forcing (max 20 min)..."
+    
+    local count=$(wc -l < "$WORK_DIR/temp_bruteforce/amass_active.txt" 2>/dev/null || echo 0)
+    log SUCCESS "Amass Active: ${GREEN}$count${NC} subdomains"
+}
+
+#═══════════════════════════════════════════════════════════════════════════
+# PERMUTATION GENERATION
+#═══════════════════════════════════════════════════════════════════════════
+
+generate_permutations() {
+    if [ "$PERMUTATIONS" != true ]; then
+        return
+    fi
+    
+    if ! check_tool "gotator" && ! check_tool "altdns"; then
+        log WARN "No permutation tool found (gotator/altdns), skipping"
+        return
+    fi
+    
+    print_section "Generating Permutations"
+    
+    log PROGRESS "Generating subdomain permutations..."
+    
+    # Create permutation wordlist
+    cat > "$WORK_DIR/temp_permutations/patterns.txt" << 'EOF'
+dev-
+dev.
+api-
+api.
+staging-
+staging.
+test-
+test.
+prod-
+prod.
+beta-
+beta.
+alpha-
+internal-
+admin-
+portal-
+vpn-
+mail-
+smtp-
+pop-
+imap-
+ftp-
+www2-
+old-
+new-
+backup-
+bak-
+tmp-
+temp-
+demo-
+preprod-
+uat-
+qa-
+mobile-
+app-
+apps-
+web-
+cdn-
+static-
+assets-
+img-
+images-
+media-
+upload-
+downloads-
+files-
+docs-
+login-
+auth-
+secure-
+ssl-
+EOF
+    
+    if check_tool "gotator"; then
+        {
+            gotator -sub "$WORK_DIR/subdomains_normalized.txt" \
+                -perm "$WORK_DIR/temp_permutations/patterns.txt" \
+                -depth 1 -numbers 10 -mindup -md 2>/dev/null
+        } > "$WORK_DIR/temp_permutations/gotator.txt" &
+        spinner $! "Gotator generating permutations..."
+        
+        local count=$(wc -l < "$WORK_DIR/temp_permutations/gotator.txt" 2>/dev/null || echo 0)
+        log SUCCESS "Gotator: ${GREEN}$count${NC} permutations generated"
+    fi
+    
+    # Resolve permutations
+    if check_tool "shuffledns"; then
+        log PROGRESS "Resolving generated permutations..."
+        {
+            shuffledns -list "$WORK_DIR/temp_permutations/gotator.txt" \
+                -r "$WORK_DIR/resolvers.txt" \
+                -mode resolve \
+                -t 5000 \
+                -silent 2>/dev/null
+        } > "$WORK_DIR/subdomains_permutations.txt" &
+        spinner $! "Resolving permutations..."
+        
+        local resolved=$(wc -l < "$WORK_DIR/subdomains_permutations.txt" 2>/dev/null || echo 0)
+        log SUCCESS "Permutations resolved: ${GREEN}$resolved${NC} live subdomains"
+    fi
+}
+
+#═══════════════════════════════════════════════════════════════════════════
+# MERGE & NORMALIZE
+#═══════════════════════════════════════════════════════════════════════════
+
+merge_and_normalize_subdomains() {
+    print_section "Merging & Normalizing Subdomains"
+    
+    # Merge all passive sources
+    log PROGRESS "Merging all passive sources..."
+    cat "$WORK_DIR/temp_subdomains"/*.txt 2>/dev/null | \
+        sort -u > "$WORK_DIR/temp_passive_merged.txt"
+    
+    local passive_count=$(wc -l < "$WORK_DIR/temp_passive_merged.txt")
+    log SUCCESS "Passive enumeration: ${GREEN}$passive_count${NC} subdomains"
+    
+    # Merge bruteforce results if enabled
+    if [ "$BRUTEFORCE" = true ]; then
+        log PROGRESS "Merging brute-force results..."
+        cat "$WORK_DIR/temp_bruteforce"/*.txt 2>/dev/null | \
+            sort -u > "$WORK_DIR/subdomains_bruteforced.txt"
+        
+        local brute_count=$(wc -l < "$WORK_DIR/subdomains_bruteforced.txt" 2>/dev/null || echo 0)
+        log SUCCESS "Brute-force: ${GREEN}$brute_count${NC} subdomains"
+        log INFO "Saved to: ${CYAN}$WORK_DIR/subdomains_bruteforced.txt${NC}"
+    fi
+    
+    # Merge everything into subdomains_raw.txt
+    log PROGRESS "Creating raw subdomain list..."
+    cat "$WORK_DIR/temp_passive_merged.txt" \
+        "$WORK_DIR/subdomains_bruteforced.txt" \
+        "$WORK_DIR/subdomains_permutations.txt" 2>/dev/null | \
+        sort -u > "$WORK_DIR/subdomains_raw.txt"
+    
+    local raw_count=$(wc -l < "$WORK_DIR/subdomains_raw.txt")
+    log SUCCESS "Total collected subdomains: ${GREEN}$raw_count${NC}"
+    log INFO "Saved to: ${CYAN}$WORK_DIR/subdomains_raw.txt${NC}"
+    
+    # Normalize
+    log PROGRESS "Normalizing (removing IPs, netblocks, wildcards, garbage)..."
+    cat "$WORK_DIR/subdomains_raw.txt" | \
+        sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
+        sed '/^$/d' | \
+        tr '[:upper:]' '[:lower:]' | \
+        sed 's/\*\.//g' | \
+        sed 's/^\.//g' | \
+        sed 's/\.$//' | \
+        grep -v "Netblock" | \
+        grep -v "IPAddress" | \
+        grep -v "contains" | \
+        grep -v "AS[0-9]" | \
+        grep -v "--->" | \
+        grep -v "CIDR" | \
+        grep -Ev '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | \
+        grep -Ev '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/' | \
+        grep -E "^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$" | \
+        grep "\\.${TARGET}$" | \
+        sort -u > "$WORK_DIR/subdomains_normalized.txt"
+    
+    local normalized_count=$(wc -l < "$WORK_DIR/subdomains_normalized.txt")
+    log SUCCESS "Normalized subdomains: ${GREEN}$normalized_count${NC}"
+    log INFO "Saved to: ${CYAN}$WORK_DIR/subdomains_normalized.txt${NC}"
+    
+    # Check live subdomains
+    if check_tool "httpx"; then
+        log PROGRESS "Checking live subdomains with httpx..."
+        cat "$WORK_DIR/subdomains_normalized.txt" | \
+            httpx -silent -threads $THREADS -timeout $TIMEOUT -no-color \
+            2>/dev/null > "$WORK_DIR/subdomains_live.txt"
+        
+        local live_count=$(wc -l < "$WORK_DIR/subdomains_live.txt")
+        log SUCCESS "Live subdomains: ${GREEN}$live_count${NC}"
+        log INFO "Saved to: ${CYAN}$WORK_DIR/subdomains_live.txt${NC}"
+        
+        # Create clean version
+        cat "$WORK_DIR/subdomains_live.txt" | \
+            sed -E 's#https?://##' | \
+            cut -d'/' -f1 | \
+            sort -u > "$WORK_DIR/subdomains_live_clean.txt"
+        
+        log INFO "Saved to: ${CYAN}$WORK_DIR/subdomains_live_clean.txt${NC}"
+    fi
+    
+    # Cleanup
+    rm -rf "$WORK_DIR/temp_subdomains" "$WORK_DIR/temp_bruteforce" "$WORK_DIR/temp_permutations" "$WORK_DIR/temp_passive_merged.txt"
+}
+
+#═══════════════════════════════════════════════════════════════════════════
+# GENERATE REPORT
+#═══════════════════════════════════════════════════════════════════════════
+
+generate_report() {
+    print_section "Generating Report"
+    
+    local report="$WORK_DIR/SUBDOMAIN_REPORT.txt"
+    
+    local stats_raw=$(wc -l < "$WORK_DIR/subdomains_raw.txt" 2>/dev/null || echo 0)
+    local stats_normalized=$(wc -l < "$WORK_DIR/subdomains_normalized.txt" 2>/dev/null || echo 0)
+    local stats_live=$(wc -l < "$WORK_DIR/subdomains_live.txt" 2>/dev/null || echo 0)
+    local stats_bruteforced=$(wc -l < "$WORK_DIR/subdomains_bruteforced.txt" 2>/dev/null || echo 0)
+    local stats_permutations=$(wc -l < "$WORK_DIR/subdomains_permutations.txt" 2>/dev/null || echo 0)
+    
+    cat > "$report" << EOF
+╔════════════════════════════════════════════════════════════════════════╗
+║                                                                        ║
+║            WEB_BUG_SUB - ULTIMATE SUBDOMAIN DISCOVERY REPORT           ║
+║                                                                        ║
+╚════════════════════════════════════════════════════════════════════════╝
+
+═══════════════════════════════════════════════════════════════════════════
+ TARGET INFORMATION
+═══════════════════════════════════════════════════════════════════════════
+Target:               $TARGET
+Scan Date:            $(date)
+Output Directory:     $WORK_DIR/
+WEB_BUG_SUB Version:  $VERSION
+
+Configuration:
+  • Threads:          $THREADS
+  • Timeout:          ${TIMEOUT}s
+  • Brute-force:      $([ "$BRUTEFORCE" = true ] && echo "Enabled" || echo "Disabled")
+  • Permutations:     $([ "$PERMUTATIONS" = true ] && echo "Enabled" || echo "Disabled")
+  • Wordlist:         ${WORDLIST:-"Not used"}
+
+═══════════════════════════════════════════════════════════════════════════
+ SUBDOMAIN DISCOVERY RESULTS
+═══════════════════════════════════════════════════════════════════════════
+✓ Total Collected:            $stats_raw subdomains
+✓ After Normalization:        $stats_normalized subdomains
+✓ Live Subdomains:            $stats_live subdomains
+
+$([ "$BRUTEFORCE" = true ] && echo "Brute-forced:                 $stats_bruteforced subdomains")
+$([ "$PERMUTATIONS" = true ] && echo "From Permutations:            $stats_permutations subdomains")
+
+Efficiency:                   $(echo "scale=2; $stats_normalized * 100 / ($stats_raw + 1)" | bc 2>/dev/null || echo "N/A")% (normalized/raw)
+Live Rate:                    $(echo "scale=2; $stats_live * 100 / ($stats_normalized + 1)" | bc 2>/dev/null || echo "N/A")% (live/normalized)
+
+═══════════════════════════════════════════════════════════════════════════
+ ENUMERATION METHODS USED
+═══════════════════════════════════════════════════════════════════════════
+Passive Enumeration:
+  ✓ Subfinder          All sources + recursive discovery
+  ✓ Assetfinder        Cross-platform enumeration
+  ✓ Amass              Passive mode with all data sources
+  ✓ Findomain          Monitoring + multi-source
+  ✓ crt.sh             Certificate Transparency (4 queries)
+  ✓ Chaos              ProjectDiscovery dataset
+
+$([ "$BRUTEFORCE" = true ] && echo "Active Enumeration:
+  ✓ ShuffleDNS         High-performance DNS brute-forcing
+  ✓ Puredns            Wildcard-aware resolution
+  ✓ Amass Active       DNS + alterations")
+
+$([ "$PERMUTATIONS" = true ] && echo "Permutation Generation:
+  ✓ Gotator            Advanced permutation generator
+  ✓ ShuffleDNS         Permutation resolution")
+
+═══════════════════════════════════════════════════════════════════════════
+ OUTPUT FILES
+═══════════════════════════════════════════════════════════════════════════
+📁 $WORK_DIR/
+
+Main Files:
+  ✓ subdomains_raw.txt              All collected ($stats_raw)
+  ✓ subdomains_normalized.txt       Cleaned & normalized ($stats_normalized)
+  ✓ subdomains_live.txt             Live with http/https ($stats_live)
+  ✓ subdomains_live_clean.txt       Live hostnames only ($stats_live)
+
+$([ "$BRUTEFORCE" = true ] && echo "  ✓ subdomains_bruteforced.txt      DNS brute-force results ($stats_bruteforced)")
+$([ "$PERMUTATIONS" = true ] && echo "  ✓ subdomains_permutations.txt     Resolved permutations ($stats_permutations)")
+
+Additional Files:
+  • resolvers.txt                   DNS resolvers used
+  • web_bug.log                     Execution log
+  • SUBDOMAIN_REPORT.txt            This report
+
+═══════════════════════════════════════════════════════════════════════════
+ RECOMMENDED NEXT STEPS
+═══════════════════════════════════════════════════════════════════════════
+
+1. 🔍 Check for subdomain takeovers
+   cat $WORK_DIR/subdomains_live.txt | nuclei -t takeovers/ -o takeovers.txt
+
+2. 🔓 Full port scanning
+   nmap -iL $WORK_DIR/subdomains_live_clean.txt -p- -T4 -oA full_ports
+   cat $WORK_DIR/subdomains_live_clean.txt | naabu -top-ports 1000
+
+3. 🌐 Take screenshots
+   cat $WORK_DIR/subdomains_live.txt | gowitness file -f - -D screenshots/
+
+4. 🎯 Start URL enumeration
+   cat $WORK_DIR/subdomains_normalized.txt | gau > urls.txt
+   cat $WORK_DIR/subdomains_normalized.txt | waybackurls >> urls.txt
+   cat $WORK_DIR/subdomains_live.txt | katana -d 3 -jc >> urls.txt
+
+5. 🔎 Vulnerability scanning
+   cat $WORK_DIR/subdomains_live.txt | nuclei -t cves/ -t exposures/ -severity critical,high,medium
+
+6. 📊 Technology detection
+   cat $WORK_DIR/subdomains_live.txt | httpx -tech-detect -title -status-code
+
+7. 🗺️ Map the attack surface
+   cat $WORK_DIR/subdomains_live.txt | aquatone -out aquatone_report/
+
+8. 🔐 SSL/TLS analysis
+   cat $WORK_DIR/subdomains_live_clean.txt | tlsx -san -cn -expired -json
+
+═══════════════════════════════════════════════════════════════════════════
+ STATISTICS
+═══════════════════════════════════════════════════════════════════════════
+Total Execution Time:     ${EXEC_MINUTES}m ${EXEC_SECONDS}s
+Threads Used:             $THREADS
+Timeout Per Tool:         ${TIMEOUT}s
+Average Subdomains/Min:   $(echo "scale=2; $stats_normalized / (($EXEC_MINUTES * 60 + $EXEC_SECONDS) / 60)" | bc 2>/dev/null || echo "N/A")
+
+═══════════════════════════════════════════════════════════════════════════
+                         HAPPY BUG HUNTING! 🎯
+═══════════════════════════════════════════════════════════════════════════
+
+Report Generated: $(date)
+WEB_BUG_SUB Version: $VERSION
+
+EOF
+    
+    log SUCCESS "Report generated: ${CYAN}$report${NC}"
+    cat "$report"
+}
+
+#═══════════════════════════════════════════════════════════════════════════
+# MAIN EXECUTION
+#═══════════════════════════════════════════════════════════════════════════
+
+subdomain_enumeration() {
+    print_section "PASSIVE SUBDOMAIN ENUMERATION"
+    
+    log TARGET "Target: ${WHITE}$TARGET${NC}"
+    log INFO "Starting passive subdomain discovery..."
+    
+    # Run passive tools in parallel
+    collect_subfinder &
+    collect_assetfinder &
+    collect_findomain &
+    collect_crtsh &
+    collect_chaos &
+    wait
+    
+    # Run amass separately (slower)
+    collect_amass
+    
+    # Active enumeration if enabled
+    if [ "$BRUTEFORCE" = true ]; then
+        print_section "ACTIVE SUBDOMAIN ENUMERATION (DNS Brute-forcing)"
+        
+        bruteforce_shuffledns &
+        bruteforce_puredns &
+        wait
+        
+        bruteforce_amass_active
+    fi
+    
+    # Generate permutations if enabled
+    if [ "$PERMUTATIONS" = true ]; then
+        generate_permutations
+    fi
+    
+    # Merge and normalize
+    merge_and_normalize_subdomains
+    
+    log SUCCESS "Subdomain enumeration complete!"
+}
+
+main() {
+    banner
+    
+    if [ $# -eq 0 ]; then
+        show_help
+        exit 0
+    fi
+    
+    TARGET=""
+    
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -w|--wordlist)
+                WORDLIST="$2"
+                shift 2
+                ;;
+            -b|--bruteforce)
+                BRUTEFORCE=true
+                shift
+                ;;
+            -p|--permutations)
+                PERMUTATIONS=true
+                shift
+                ;;
+            -t|--threads)
+                THREADS="$2"
+                shift 2
+                ;;
+            -to|--timeout)
+                TIMEOUT="$2"
+                shift 2
+                ;;
+            -s|--skip)
+                IFS=',' read -ra SKIP_TOOLS <<< "$2"
+                shift 2
+                ;;
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            *)
+                if [[ -z "$TARGET" ]]; then
+                    TARGET="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+    
+    # Validate
+    if [[ -z "$TARGET" ]]; then
+        log ERROR "No target specified!"
+        show_help
+        exit 1
+    fi
+    
+    if [[ ! "$TARGET" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$ ]]; then
+        log ERROR "Invalid domain format: $TARGET"
+        exit 1
+    fi
+    
+    # Start
+    START_TIME=$(date +%s)
+    
+    log TARGET "Target: ${WHITE}$TARGET${NC}"
+    log INFO "Mode: $([ "$BRUTEFORCE" = true ] && echo "AGGRESSIVE (Passive + Active)" || echo "PASSIVE ONLY")"
+    
+    # Check dependencies
+    check_dependencies
+    
+    # Setup workspace
+    setup_workspace "$TARGET"
+    
+    # Run enumeration
+    subdomain_enumeration
+    
+    # Generate report
+    generate_report
+    
+    # Done
+    END_TIME=$(date +%s)
+    EXECUTION_TIME=$((END_TIME - START_TIME))
+    EXEC_MINUTES=$((EXECUTION_TIME / 60))
+    EXEC_SECONDS=$((EXECUTION_TIME % 60))
+    
+    print_section "ENUMERATION COMPLETE"
+    log SUCCESS "Execution time: ${GREEN}${EXEC_MINUTES}m ${EXEC_SECONDS}s${NC}"
+    log SUCCESS "All results saved in: ${GREEN}$WORK_DIR/${NC}"
+    
+    echo -e "\n${WHITE}╔═══════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${WHITE}║${NC}  ${GREEN}✓ Maximum subdomain discovery completed!${NC}"
+    echo -e "${WHITE}║${NC}  ${CYAN}📁 Results: ${WHITE}$WORK_DIR/${NC}"
+    echo -e "${WHITE}║${NC}  ${YELLOW}🎯 Found ${WHITE}$(wc -l < "$WORK_DIR/subdomains_normalized.txt")${YELLOW} unique subdomains!${NC}"
+    echo -e "${WHITE}╚═══════════════════════════════════════════════════════════════════╝${NC}\n"
+}
+
+main "$@"
