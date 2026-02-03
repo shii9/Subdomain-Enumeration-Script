@@ -42,6 +42,7 @@ Follow the instructions below to clone, set up, and execute the script for subdo
 ```bash
 git clone https://github.com/shii9/Subdomain-Enumeration-Script.git
 cd Subdomain-Enumeration-Script
+chmod +x web_subdomain
 ```
 
 ### Step 2: Install Dependencies
